@@ -6,4 +6,4 @@ The project uses [whisper.cpp](github.com/ggml-org/whisper.cpp) for Metal-optimi
 
 To run this tool, you must first ensure you have the required model file in the whisper.cpp/models directory. You can use the included run.sh script to compile the Swift source files and launch the background process. The first time you run it, macOS will request Accessibility and Input Monitoring permissions which are necessary to to capture global key events and simulating keystrokes. After granting permissions, run the script again.
 
-The default hotkey is configured to <u>Left Option + S</u>. Hold the keys to speak and release them to transcribe. The application logs its activity to transcriber.log in the project directory. Use the included launch script to setup transcriber at startup.
+The default hotkey is configured to <ins>Left Option + S</ins>. Hold the keys to speak and release them to transcribe. The application logs its activity to transcriber.log in the project directory. Use the included launch script to setup transcriber at startup.
