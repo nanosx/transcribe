@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Build the project
-swiftc Logger.swift transcriber.swift -o transcriber
+swiftc transcriber.swift -o transcriber
 
 # Kill existing instances
 pkill transcriber 2>/dev/null
