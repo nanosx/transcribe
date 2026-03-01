@@ -2,6 +2,39 @@ import Cocoa
 import AVFoundation
 import Carbon
 
+// MARK: - Logger
+
+class Logger {
+    static let shared = Logger()
+    private let logUrl: URL
+
+    private init() {
+        let logPath = FileManager.default.currentDirectoryPath + "/transcriber.log"
+        self.logUrl = URL(fileURLWithPath: logPath)
+    }
+
+    func log(_ message: String) {
+        let entry = "\(Date()): \(message)\n"
+        
+        // Write to file
+        if !FileManager.default.fileExists(atPath: logUrl.path) {
+            try? entry.write(to: logUrl, atomically: true, encoding: String.Encoding.utf8)
+        } else {
+            if let handle = try? FileHandle(forWritingTo: logUrl) {
+                handle.seekToEndOfFile()
+                if let data = entry.data(using: String.Encoding.utf8) {
+                    handle.write(data)
+                }
+                handle.closeFile()
+            }
+        }
+    }
+
+    func clear() {
+        try? "".write(to: logUrl, atomically: true, encoding: String.Encoding.utf8)
+    }
+}
+
 // MARK: - Configuration
 
 private enum Config {
@@ -22,19 +55,47 @@ private var audioRecorder: AVAudioRecorder?
 private var currentRecordingURL: URL?
 private var eventTap: CFMachPort?
 private let processingQueue = DispatchQueue(label: "com.whisper.processing", qos: .userInitiated)
+private let synthesizer = AVSpeechSynthesizer()
 
 // MARK: - Helpers
 
 private func checkAccessibilityPermissions() -> Bool {
+    // Check if we already have permission
+    if AXIsProcessTrusted() {
+        return true
+    }
+    
+    // If not, prompt the user exactly once
     let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-    return AXIsProcessTrustedWithOptions(options as CFDictionary)
+    AXIsProcessTrustedWithOptions(options as CFDictionary)
+    
+    print("🔒 Accessibility permissions required.")
+    print("   Please grant access in System Settings > Privacy & Security > Accessibility.")
+    print("   Waiting for permission...")
+    
+    // Wait until permission is granted
+    while !AXIsProcessTrusted() {
+        Thread.sleep(forTimeInterval: 1.0)
+    }
+    
+    print("✅ Permissions granted!")
+    return true
 }
 
 private func speak(_ text: String) {
-    let process = Process()
-    process.launchPath = "/usr/bin/say"
-    process.arguments = ["-r", "200", text]
-    process.launch()
+    if synthesizer.isSpeaking {
+        synthesizer.stopSpeaking(at: .immediate)
+    }
+    
+    let utterance = AVSpeechUtterance(string: text)
+    // Attempt to find Daniel (British Male), otherwise fall back to any en-GB
+    if let voice = AVSpeechSynthesisVoice(identifier: "com.apple.speech.synthesis.voice.Daniel") ?? AVSpeechSynthesisVoice(language: "en-GB") {
+        utterance.voice = voice
+    }
+    utterance.rate = 0.58
+    utterance.pitchMultiplier = 1.0 // Reset pitch for natural voice
+    utterance.volume = 1.0
+    synthesizer.speak(utterance)
 }
 
 // MARK: - Audio Recording
@@ -137,15 +198,19 @@ private func transcribe(audioURL: URL) {
 private func cleanOutput(_ text: String) -> String {
     var clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
     
-    if clean.lowercased().hasPrefix("listening") {
-        let index = clean.index(clean.startIndex, offsetBy: 9)
-        clean = String(clean[index...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        while clean.hasPrefix(".") {
-            clean = String(clean.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+    let prefixesToRemove: [String] = []
+    
+    for prefix in prefixesToRemove {
+        if clean.lowercased().hasPrefix(prefix) {
+            let index = clean.index(clean.startIndex, offsetBy: prefix.count)
+            clean = String(clean[index...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            while clean.hasPrefix(".") || clean.hasPrefix(",") || clean.hasPrefix("?") {
+                clean = String(clean.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
     }
     
-    let hallucinations = ["Thank you.", "Thank you", "Thanks.", "Thanks", "[Silence]", "(Silence)", "[Background noise]", "[NO OUTPUT]", "[]"]
+    let hallucinations = ["Thank you.", "Thank you", "Thanks.", "Thanks", "[Silence]", "(Silence)", "[Background noise]", "Amara.org"]
     if hallucinations.contains(where: { clean.caseInsensitiveCompare($0) == .orderedSame }) {
         return ""
     }
@@ -161,18 +226,17 @@ private func paste(text: String) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(text, forType: .string)
     
-    let script = """
-    tell application "System Events"
-        keystroke "v" using command down
-    end tell
-    """
+    let source = CGEventSource(stateID: .hidSystemState)
+    let vKeyCode: CGKeyCode = 9 // 'v'
     
-    if let appleScript = NSAppleScript(source: script) {
-        var error: NSDictionary?
-        appleScript.executeAndReturnError(&error)
-        if let error = error {
-            Logger.shared.log("❌ Paste error: \(error)")
-        }
+    if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true) {
+        keyDown.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+    }
+    
+    if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) {
+        keyUp.flags = .maskCommand
+        keyUp.post(tap: .cghidEventTap)
     }
 }
 
