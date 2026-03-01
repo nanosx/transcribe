@@ -82,13 +82,16 @@ private func checkAccessibilityPermissions() -> Bool {
     return true
 }
 
+private func playSystemSound(_ soundID: SystemSoundID) {
+    AudioServicesPlaySystemSound(soundID)
+}
+
 private func speak(_ text: String) {
     if synthesizer.isSpeaking {
         synthesizer.stopSpeaking(at: .immediate)
     }
     
     let utterance = AVSpeechUtterance(string: text)
-    // Attempt to find Daniel (British Male), otherwise fall back to any en-GB
     if let voice = AVSpeechSynthesisVoice(identifier: "com.apple.speech.synthesis.voice.Daniel") ?? AVSpeechSynthesisVoice(language: "en-GB") {
         utterance.voice = voice
     }
@@ -126,9 +129,9 @@ private func startRecording() {
         
         Logger.shared.clear()
         Logger.shared.log("🎤 Started recording: \(url.lastPathComponent)")
-        speak("Listening")
+        playSystemSound(1104)
     } catch {
-        Logger.shared.log("❌ Failed to start recording: \(error)")
+        Logger.shared.log("Failed to start recording: \(error)")
     }
 }
 
@@ -138,8 +141,8 @@ private func stopRecording() {
     
     guard let recorder = audioRecorder, let url = currentRecordingURL, isRecording else { return }
     
-    Logger.shared.log("🛑 Stopped recording")
-    speak("Processing")
+    Logger.shared.log("Stopped recording")
+    playSystemSound(1103)
     recorder.stop()
     isRecording = false
     
@@ -158,7 +161,7 @@ private func transcribe(audioURL: URL) {
     defer { try? FileManager.default.removeItem(at: audioURL) }
     
     guard FileManager.default.fileExists(atPath: Config.modelPath) else {
-        Logger.shared.log("❌ Model missing at: \(Config.modelPath)")
+        Logger.shared.log("Model missing at: \(Config.modelPath)")
         return
     }
     
@@ -186,12 +189,12 @@ private func transcribe(audioURL: URL) {
         if let output = String(data: data, encoding: .utf8) {
             let text = cleanOutput(output)
             if !text.isEmpty {
-                Logger.shared.log("📝 Transcribed: \(text)")
+                Logger.shared.log("Transcribed: \(text)")
                 DispatchQueue.main.async { paste(text: text) }
             }
         }
     } catch {
-        Logger.shared.log("❌ Whisper error: \(error)")
+        Logger.shared.log("Whisper error: \(error)")
     }
 }
 
@@ -210,7 +213,7 @@ private func cleanOutput(_ text: String) -> String {
         }
     }
     
-    let hallucinations = ["Thank you.", "Thank you", "Thanks.", "Thanks", "[Silence]", "(Silence)", "[Background noise]", "Amara.org"]
+    let hallucinations = ["Thank you.", "Thank you", "Thanks.", "Thanks", "[Silence]", "(Silence)", "[Background noise]", "[BLANK_AUDIO]"]
     if hallucinations.contains(where: { clean.caseInsensitiveCompare($0) == .orderedSame }) {
         return ""
     }
